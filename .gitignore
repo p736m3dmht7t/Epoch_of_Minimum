@@ -1,0 +1,27 @@
+# Python virtual environment folders
+venv/
+.venv/
+env/
+.env/
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE / Editor-specific folders (VS Code)
+.vscode/
+
+# Secret files - NEVER COMMIT THESE
+.env
+*.env
+
+# Build artifacts and distribution files
+build/
+dist/
+*.egg-info/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
