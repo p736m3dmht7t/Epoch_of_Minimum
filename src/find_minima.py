@@ -1,3 +1,5 @@
+import sys
+import os
 import pandas as pd
 import numpy as np
 
@@ -95,9 +97,9 @@ def _process_sequence(
 def find_variable_star_minima(
     input_file,
     output_file,
-    sequence_length=15,
-    monotonic_length=5,
-    night_mode='land',
+    sequence_length=40,
+    monotonic_length=10,
+    night_mode='space',
     night_gap_hours=8.0
 ):
     """
@@ -123,6 +125,7 @@ def find_variable_star_minima(
     """
     try:
         # Read and prepare the data
+        print(f"Reading file: {input_file}")
         df = pd.read_csv(input_file)
         df.columns = df.columns.str.strip()
 
@@ -202,5 +205,16 @@ def find_variable_star_minima(
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
-# Call the function with the dummy input and a desired output file name
-find_variable_star_minima("TZ_Boo_Measurement_Table_B.csv", "TZ_Boo_Measurement_Table_B_minima.csv")
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Error: Please provide an input file name.")
+        print("Usage: python find_minima.py <input_file.csv>")
+        sys.exit(1)
+    
+    input_file = sys.argv[1]
+    
+    # Generate output filename by appending '_minima' before the .csv extension
+    base_name, ext = os.path.splitext(input_file)
+    output_file = f"{base_name}_minima.csv"
+    
+    find_variable_star_minima(input_file, output_file)
