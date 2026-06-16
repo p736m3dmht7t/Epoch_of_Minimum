@@ -165,56 +165,10 @@ def kwee_van_woerden(
     if N < 3:
         raise ValueError("At least 3 data points required.")
 
-    if N % 2 == 1:
-        return _kwee_van_woerden_core(times, mags, max_iterations=max_iterations)
+    if N % 2 == 0:
+        raise ValueError("Kwee & van Woerden requires an odd number of data points.")
 
-    t_min = times[0]
-    t_max = times[-1]
-    if t_min == t_max:
-        raise ValueError("All times are identical; cannot interpolate.")
-
-    # Build evenly spaced grids within the observed range.
-    grid_minus = np.linspace(t_min, t_max, N - 1)
-    grid_plus = np.linspace(t_min, t_max, N + 1)
-
-    mags_minus = np.interp(grid_minus, times, mags)
-    mags_plus = np.interp(grid_plus, times, mags)
-
-    results = []
-
-    try:
-        results.append(
-            _kwee_van_woerden_core(
-                grid_minus,
-                mags_minus,
-                max_iterations=max_iterations
-            )
-        )
-    except ValueError:
-        pass
-
-    try:
-        results.append(
-            _kwee_van_woerden_core(
-                grid_plus,
-                mags_plus,
-                max_iterations=max_iterations
-            )
-        )
-    except ValueError:
-        pass
-
-    if not results:
-        raise ValueError("Failed to evaluate even-length sequence via interpolation.")
-
-    if len(results) == 1:
-        return results[0]
-
-    epoch_avg = sum(result[0] for result in results) / len(results)
-    variance = sum(result[1] ** 2 for result in results) / len(results)
-    std_combined = float(np.sqrt(variance))
-
-    return float(epoch_avg), std_combined
+    return _kwee_van_woerden_core(times, mags, max_iterations=max_iterations)
 
 
 def _read_stdin_pairs():
