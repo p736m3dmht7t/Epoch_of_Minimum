@@ -1,9 +1,6 @@
+import argparse
 import sys
 import os
-import pandas as pd
-import numpy as np
-
-from kwee_and_van_woerden import kwee_van_woerden
 
 
 def _trim_and_validate_sequence(
@@ -12,37 +9,32 @@ def _trim_and_validate_sequence(
     sequence_length,
     monotonic_length
 ):
-    working_df = sequence_df.copy().reset_index(drop=True)
-    if working_df.empty:
+    candidate_run_df = sequence_df.copy().reset_index(drop=True)
+    if candidate_run_df.empty:
         return None
 
-    first_mag = working_df['Source_AMag_T1'].iloc[0]
-    last_mag = working_df['Source_AMag_T1'].iloc[-1]
+    if sequence_length <= 0 or sequence_length % 2 == 0:
+        raise ValueError("sequence_length must be a positive odd integer.")
 
-    trimmed_df = working_df.copy()
-    if first_mag >= last_mag:
-        while len(trimmed_df) > 1 and trimmed_df['Source_AMag_T1'].iloc[-1] < first_mag:
-            trimmed_df = trimmed_df.iloc[:-1]
-    else:
-        while len(trimmed_df) > 1 and trimmed_df['Source_AMag_T1'].iloc[0] < last_mag:
-            trimmed_df = trimmed_df.iloc[1:]
+    if monotonic_length < 0:
+        raise ValueError("monotonic_length must be non-negative.")
 
-    if trimmed_df.empty:
-        trimmed_df = working_df
+    half_window = sequence_length // 2
+    center_idx = candidate_run_df['Source_AMag_T1'].idxmax()
+    start_idx = center_idx - half_window
+    end_idx = center_idx + half_window
 
-    orig_diff = abs(first_mag - last_mag) if len(working_df) > 1 else 0.0
-    trimmed_first = trimmed_df['Source_AMag_T1'].iloc[0]
-    trimmed_last = trimmed_df['Source_AMag_T1'].iloc[-1]
-    trimmed_diff = abs(trimmed_first - trimmed_last) if len(trimmed_df) > 1 else 0.0
-
-    candidate_df = working_df if trimmed_diff > orig_diff else trimmed_df
-    if len(candidate_df) < sequence_length:
+    if start_idx < 0 or end_idx >= len(candidate_run_df):
         return None
-    candidate_df = candidate_df.reset_index(drop=True)
+
+    candidate_df = candidate_run_df.iloc[start_idx:end_idx + 1].reset_index(drop=True)
 
     if monotonic_length > 0:
-        if len(candidate_df) < monotonic_length:
-            return None
+        max_monotonic_length = half_window + 1
+        if monotonic_length > max_monotonic_length:
+            raise ValueError(
+                "monotonic_length must not exceed (sequence_length + 1) // 2."
+            )
         mags = candidate_df['Source_AMag_T1']
         first_segment = mags.iloc[:monotonic_length]
         last_segment = mags.iloc[-monotonic_length:]
@@ -62,6 +54,10 @@ def _process_sequence(
     is_first_valid_minimum,
     csvfile
 ):
+    import numpy as np
+
+    from kwee_and_van_woerden import kwee_van_woerden
+
     candidate_df = _trim_and_validate_sequence(
         sequence_df,
         sequence_length=sequence_length,
@@ -97,8 +93,8 @@ def _process_sequence(
 def find_variable_star_minima(
     input_file,
     output_file,
-    sequence_length=8,
-    monotonic_length=4,
+    sequence_length=7,
+    monotonic_length=None,
     night_mode='land',
     night_gap_hours=8.0
 ):
@@ -108,22 +104,25 @@ def find_variable_star_minima(
     A 'clean' minimum must satisfy three conditions:
     1. It belongs to a contiguous sequence of observations with magnitudes above the
        dataset median within a nightly segment.
-    2. After trimming to balance the sequence ends, it contains at least `sequence_length`
-       samples centered on the maximum magnitude.
+    2. It contains exactly `sequence_length` samples, where `sequence_length` is odd
+       and the middle sample is the maximum magnitude in the candidate sequence.
     3. The first `monotonic_length` magnitudes are non-decreasing and the last
        `monotonic_length` are non-increasing.
 
     Args:
         input_file (str): Path to the AstroImageJ Measurements file.
         output_file (str): Path to the output CSV file.
-        sequence_length (int): The total number of data points for a valid minimum. Must be odd.
-        monotonic_length (int): The number of points at the start and end of the sequence
-                                to check for monotonic behavior.
+        sequence_length (int): The total number of data points for a valid minimum. Must be a positive odd integer.
+        monotonic_length (int | None): The number of points at the start and end of the
+                                       sequence to check for monotonic behavior. Defaults
+                                       to (sequence_length + 1) // 2 when not provided.
         night_mode (str): 'land' splits nights by gaps exceeding `night_gap_hours`; 'space'
                           treats the light curve as a single continuous segment.
         night_gap_hours (float): Time gap (in hours) that defines separate nights in land mode.
     """
     try:
+        import pandas as pd
+
         # Read and prepare the data
         print(f"Reading file: {input_file}")
         df = pd.read_csv(input_file)
@@ -144,6 +143,16 @@ def find_variable_star_minima(
         night_mode_normalized = (night_mode or '').lower()
         if night_mode_normalized not in {'land', 'space'}:
             raise ValueError("night_mode must be 'land' or 'space'.")
+        if sequence_length <= 0 or sequence_length % 2 == 0:
+            raise ValueError("sequence_length must be a positive odd integer.")
+        if monotonic_length is None:
+            monotonic_length = (sequence_length + 1) // 2
+        if monotonic_length < 0:
+            raise ValueError("monotonic_length must be non-negative.")
+        if monotonic_length > (sequence_length + 1) // 2:
+            raise ValueError(
+                "monotonic_length must not exceed (sequence_length + 1) // 2."
+            )
 
         if night_mode_normalized == 'land':
             if night_gap_hours <= 0:
@@ -155,6 +164,9 @@ def find_variable_star_minima(
             df['segment'] = 0
 
         # Open the output file to write validated minima
+        output_dir = os.path.dirname(output_file)
+        if output_dir:
+            os.makedirs(output_dir, exist_ok=True)
         with open(output_file, 'w', newline='') as csvfile:
             is_first_valid_minimum = True
 
@@ -205,16 +217,82 @@ def find_variable_star_minima(
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
 
+
+def _build_argument_parser():
+    parser = argparse.ArgumentParser(
+        description=(
+            "Find clean variable-star minima from an AstroImageJ measurements CSV "
+            "using a global-median threshold and a symmetric odd-length window."
+        ),
+        usage=(
+            "%(prog)s <input_file.csv> {land,space} <sequence_length> "
+            "[--output OUTPUT_FILE] [--monotonic-length N] [--night-gap-hours HOURS]"
+        )
+    )
+    parser.add_argument(
+        "input_file",
+        help="Path to the AstroImageJ measurements CSV file. Bare filenames are resolved from input/."
+    )
+    parser.add_argument(
+        "night_mode",
+        choices=["land", "space"],
+        help="Use 'land' to split nights by time gaps or 'space' to treat the file as one segment."
+    )
+    parser.add_argument(
+        "sequence_length",
+        type=int,
+        help="Odd number of observations to keep, centered on the dimmest selected observation."
+    )
+    parser.add_argument(
+        "--output",
+        dest="output_file",
+        help="Path to the output CSV file. Defaults to output/<input_stem>_minima.csv."
+    )
+    parser.add_argument(
+        "--monotonic-length",
+        type=int,
+        default=None,
+        help="Override the monotonic edge length. Defaults to (sequence_length + 1) // 2."
+    )
+    parser.add_argument(
+        "--night-gap-hours",
+        type=float,
+        default=8.0,
+        help="Gap in hours used to split nights in land mode. Default: 8.0."
+    )
+    return parser
+
+
+def _resolve_input_path(input_file):
+    if os.path.dirname(input_file):
+        return input_file
+    return os.path.join("input", input_file)
+
+
+def _default_output_path(input_file):
+    input_name = os.path.basename(input_file)
+    base_name, _ = os.path.splitext(input_name)
+    return os.path.join("output", f"{base_name}_minima.csv")
+
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Error: Please provide an input file name.")
-        print("Usage: python find_minima.py <input_file.csv>")
+    parser = _build_argument_parser()
+    if len(sys.argv) == 1:
+        parser.print_usage()
         sys.exit(1)
-    
-    input_file = sys.argv[1]
-    
-    # Generate output filename by appending '_minima' before the .csv extension
-    base_name, ext = os.path.splitext(input_file)
-    output_file = f"{base_name}_minima.csv"
-    
-    find_variable_star_minima(input_file, output_file)
+
+    args = parser.parse_args()
+
+    input_file = _resolve_input_path(args.input_file)
+
+    output_file = args.output_file
+    if output_file is None:
+        output_file = _default_output_path(args.input_file)
+
+    find_variable_star_minima(
+        input_file,
+        output_file,
+        sequence_length=args.sequence_length,
+        monotonic_length=args.monotonic_length,
+        night_mode=args.night_mode,
+        night_gap_hours=args.night_gap_hours
+    )

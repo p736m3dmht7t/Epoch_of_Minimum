@@ -26,5 +26,6 @@ dist/
 .DS_Store
 Thumbs.db
 
-# Data files
-*.csv
+# Project data artifacts
+input/
+output/
