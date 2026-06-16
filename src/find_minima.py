@@ -97,7 +97,7 @@ def _process_sequence(
 def find_variable_star_minima(
     input_file,
     output_file,
-    sequence_length=7,
+    sequence_length=8,
     monotonic_length=4,
     night_mode='land',
     night_gap_hours=8.0
